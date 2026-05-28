@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QA Torque Grid</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for the data table */
+        .table-container { max-height: 60vh; overflow-y: auto; }
+        .ng-row { background-color: #fee2e2 !important; }
+        input[type="number"] { width: 80px; text-align: center; }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans min-h-screen p-2 md:p-6 text-sm md:text-base">
+
+    <main class="max-w-6xl mx-auto space-y-6">
+        
+        <div class="bg-white rounded-xl shadow p-4 border-t-8 border-slate-800">
+            <h2 class="font-black text-gray-800 mb-3 uppercase border-b pb-2">1. Initialize Batch Setup</h2>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 uppercase">Date</label>
+                    <input type="date" id="setupDate" class="w-full border p-2 rounded" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 uppercase">Shift</label>
+                    <select id="setupShift" class="w-full border p-2 rounded">
+                        <option value="A">Shift A</option>
+                        <option value="B">Shift B</option>
+                        <option value="C">Shift C</option>
+                        <option value="General">General</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 uppercase">Model *</label>
+                    <select id="setupModel" class="w-full border p-2 rounded bg-blue-50 font-bold" required>
+                        <option value="">-- Select --</option>
+                        <option value="HF NON">HF NON</option>
+                        <option value="HF i3s">HF i3s</option>
+                        <option value="Splendor non">Splendor non</option>
+                        <option value="Splendor i3s">Splendor i3s</option>
+                        <option value="Passion">Passion</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 uppercase">Line</label>
+                    <input type="text" id="setupLine" value="Frame Assembly" class="w-full border p-2 rounded">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-white uppercase opacity-0">Action</label>
+                    <button id="loadGridBtn" class="w-full bg-slate-800 text-white font-bold py-2 rounded hover:bg-slate-700">Load Checklist</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="gridModule" class="bg-white rounded-xl shadow border-t-8 border-blue-600 hidden">
+            <div class="p-4 flex justify-between items-center bg-blue-50 rounded-t-xl">
+                <h2 class="font-black text-blue-900 uppercase">2. Mass Data Entry</h2>
+                <input type="text" id="auditorName" placeholder="Auditor Signature/Name" class="border p-2 rounded font-bold">
+            </div>
+            
+            <div class="table-container p-2">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-800 text-white sticky top-0 text-xs uppercase">
+                        <tr>
+                            <th class="p-2 border">Part Description</th>
+                            <th class="p-2 border text-center">Spec (Min-Max)</th>
+                            <th class="p-2 border bg-blue-700 text-center">Read 1</th>
+                            <th class="p-2 border bg-blue-800 text-center">Read 2</th>
+                            <th class="p-2 border bg-blue-900 text-center">Read 3</th>
+                            <th class="p-2 border text-center">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="gridBody" class="text-gray-700">
+                        </tbody>
+                </table>
+            </div>
+
+            <div class="p-4 bg-gray-50 rounded-b-xl text-right border-t">
+                <button id="saveGridBtn" class="bg-blue-600 text-white font-black px-8 py-3 rounded shadow-lg hover:bg-blue-700">💾 Save All Shift Data</button>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // PASTE YOUR URL HERE
+        const API_URL = "YOUR_DEPLOYED_WEB_APP_URL_HERE";
+        
+        let loadedParts = [];
+
+        // Set today's date automatically
+        document.getElementById('setupDate').valueAsDate = new Date();
+
+        // 1. Fetch Parts and Existing Readings
+        document.getElementById('loadGridBtn').addEventListener('click', async () => {
+            const date = document.getElementById('setupDate').value;
+            const shift = document.getElementById('setupShift').value;
+            const model = document.getElementById('setupModel').value;
+
+            if(!model || !date) { alert("Please select Date and Model."); return; }
+
+            const btn = document.getElementById('loadGridBtn');
+            btn.innerText = "Loading..."; btn.disabled = true;
+
+            try {
+                // Fetch data from backend
+                const url = `${API_URL}?action=getSetup&date=${date}&shift=${shift}&model=${model}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                loadedParts = data.parts;
+                renderGrid(data.parts, data.existing);
+                
+                document.getElementById('gridModule').classList.remove('hidden');
+            } catch(e) {
+                alert("Failed to load checklist. Check API URL.");
+                console.error(e);
+            } finally {
+                btn.innerText = "Load Checklist"; btn.disabled = false;
+            }
+        });
+
+        // 2. Render the Table
+        function renderGrid(parts, existingData) {
+            const tbody = document.getElementById('gridBody');
+            tbody.innerHTML = '';
+
+            parts.forEach((part, index) => {
+                // Check if we saved data earlier today for this part
+                const prev = existingData[part.name] || { r1: '', r2: '', r3: '' };
+                
+                const tr = document.createElement('tr');
+                tr.className = "border-b hover:bg-gray-50";
+                tr.id = `row_${index}`;
+
+                tr.innerHTML = `
+                    <td class="p-2 border font-bold text-xs">${part.name} <br><span class="text-gray-400 font-normal">${part.code || ''}</span></td>
+                    <td class="p-2 border text-center font-mono text-xs text-gray-500">${part.min} - ${part.max}</td>
+                    <td class="p-1 border text-center"><input type="number" step="any" id="r1_${index}" value="${prev.r1}" class="border rounded p-1" oninput="evaluateRow(${index}, ${part.min}, ${part.max})"></td>
+                    <td class="p-1 border text-center"><input type="number" step="any" id="r2_${index}" value="${prev.r2}" class="border rounded p-1" oninput="evaluateRow(${index}, ${part.min}, ${part.max})"></td>
+                    <td class="p-1 border text-center"><input type="number" step="any" id="r3_${index}" value="${prev.r3}" class="border rounded p-1" oninput="evaluateRow(${index}, ${part.min}, ${part.max})"></td>
+                    <td class="p-2 border text-center font-black" id="status_${index}">-</td>
+                `;
+                tbody.appendChild(tr);
+                
+                // Run evaluation immediately to color existing data
+                evaluateRow(index, part.min, part.max);
+            });
+        }
+
+        // 3. Row Evaluation Math (Allows any value, flags if NG)
+        function evaluateRow(index, min, max) {
+            const r1 = document.getElementById(`r1_${index}`).value;
+            const r2 = document.getElementById(`r2_${index}`).value;
+            const r3 = document.getElementById(`r3_${index}`).value;
+            const statusCell = document.getElementById(`status_${index}`);
+            const row = document.getElementById(`row_${index}`);
+
+            if (r1 === "" && r2 === "" && r3 === "") {
+                statusCell.innerText = "-";
+                statusCell.className = "p-2 border text-center font-black text-gray-400";
+                row.classList.remove('ng-row');
+                return "PENDING";
+            }
+
+            let isOk = true;
+            if (r1 !== "" && (parseFloat(r1) < min || parseFloat(r1) > max)) isOk = false;
+            if (r2 !== "" && (parseFloat(r2) < min || parseFloat(r2) > max)) isOk = false;
+            if (r3 !== "" && (parseFloat(r3) < min || parseFloat(r3) > max)) isOk = false;
+
+            if (isOk) {
+                statusCell.innerText = "OK";
+                statusCell.className = "p-2 border text-center font-black text-green-600";
+                row.classList.remove('ng-row');
+                return "OK";
+            } else {
+                statusCell.innerText = "NG";
+                statusCell.className = "p-2 border text-center font-black text-red-600";
+                row.classList.add('ng-row'); // Turns the entire row red instantly
+                return "NG";
+            }
+        }
+
+        // 4. Save the entire array back to Google Sheets
+        document.getElementById('saveGridBtn').addEventListener('click', async () => {
+            const auditor = document.getElementById('auditorName').value;
+            if(!auditor) { alert("Please enter the Auditor Name before saving."); return; }
+
+            const btn = document.getElementById('saveGridBtn');
+            btn.innerText = "Saving Data..."; btn.disabled = true;
+
+            const recordsToSave = [];
+
+            // Loop through all generated rows and pack the data
+            loadedParts.forEach((part, index) => {
+                const r1 = document.getElementById(`r1_${index}`).value;
+                const r2 = document.getElementById(`r2_${index}`).value;
+                const r3 = document.getElementById(`r3_${index}`).value;
+                
+                // Only send rows where at least one reading exists
+                if(r1 || r2 || r3) {
+                    recordsToSave.push({
+                        partCode: part.code,
+                        partName: part.name,
+                        specMin: part.min,
+                        specMax: part.max,
+                        r1: r1, r2: r2, r3: r3,
+                        result: evaluateRow(index, part.min, part.max)
+                    });
+                }
+            });
+
+            const payload = {
+                action: "saveGrid",
+                date: document.getElementById('setupDate').value,
+                shift: document.getElementById('setupShift').value,
+                model: document.getElementById('setupModel').value,
+                line: document.getElementById('setupLine').value,
+                auditor: auditor,
+                records: recordsToSave
+            };
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if(result.status === "SUCCESS") {
+                    alert("Shift Data successfully saved!");
+                } else { alert("Database Error: " + result.message); }
+            } catch(e) { alert("Network failure. Check console."); } 
+            finally { btn.innerText = "💾 Save All Shift Data"; btn.disabled = false; }
+        });
+    </script>
+</body>
+</html>
